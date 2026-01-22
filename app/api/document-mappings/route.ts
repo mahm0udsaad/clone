@@ -9,6 +9,19 @@ type DocumentMapping = {
   createdAt: string;
 };
 
+type DocumentRow = {
+  id_number: string;
+  serial_number: string;
+  file_name: string;
+  created_at: string;
+};
+
+type DocumentFileRow = {
+  file_name: string;
+  file_type: string;
+  file_data_base64: string;
+};
+
 const sanitizeFileName = (name: string) => {
   const safeName = name
     .replace(/\s+/g, "-")
@@ -55,14 +68,12 @@ export async function GET(request: NextRequest) {
 
   if (idNumber && serialNumber) {
     if (shouldDownload) {
-      const rows = await sql<
-        { file_name: string; file_type: string; file_data_base64: string }[]
-      >`
+      const rows = (await sql`
         SELECT file_name, file_type, file_data_base64
         FROM document_mappings
         WHERE id_number = ${idNumber} AND serial_number = ${serialNumber}
         LIMIT 1;
-      `;
+      `) as DocumentFileRow[];
 
       const file = rows[0];
       if (!file) {
@@ -84,14 +95,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const rows = await sql<
-      { id_number: string; serial_number: string; file_name: string; created_at: string }[]
-    >`
+    const rows = (await sql`
       SELECT id_number, serial_number, file_name, created_at
       FROM document_mappings
       WHERE id_number = ${idNumber} AND serial_number = ${serialNumber}
       LIMIT 1;
-    `;
+    `) as DocumentRow[];
     const mapping = rows[0];
 
     if (!mapping) {
@@ -110,28 +119,19 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const rows = await sql<
-    { id_number: string; serial_number: string; file_name: string; created_at: string }[]
-  >`
+  const rows = (await sql`
     SELECT id_number, serial_number, file_name, created_at
     FROM document_mappings
     ORDER BY created_at DESC;
-  `;
+  `) as DocumentRow[];
 
-  const mappings: DocumentMapping[] = rows.map(
-    (row: {
-      id_number: string;
-      serial_number: string;
-      file_name: string;
-      created_at: string;
-    }) => ({
+  const mappings: DocumentMapping[] = rows.map((row) => ({
     idNumber: row.id_number,
     serialNumber: row.serial_number,
     fileName: row.file_name,
     fileUrl: toDownloadUrl(row.id_number, row.serial_number),
     createdAt: row.created_at,
-    })
-  );
+  }));
 
   return NextResponse.json(mappings);
 }
@@ -172,9 +172,7 @@ export async function POST(request: NextRequest) {
   await ensureTable();
   const sql = createSqlClient();
 
-  const rows = await sql<
-    { id_number: string; serial_number: string; file_name: string; created_at: string }[]
-  >`
+  const rows = (await sql`
     INSERT INTO document_mappings (
       id_number,
       serial_number,
@@ -196,7 +194,7 @@ export async function POST(request: NextRequest) {
       file_data_base64 = EXCLUDED.file_data_base64,
       created_at = NOW()
     RETURNING id_number, serial_number, file_name, created_at;
-  `;
+  `) as DocumentRow[];
 
   const mapping = rows[0];
   const responsePayload: DocumentMapping = {
