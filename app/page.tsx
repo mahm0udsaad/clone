@@ -10,10 +10,12 @@ export default function Home() {
     serialNumber: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setFormError("");
 
     // Reset errors
     const newErrors = {
@@ -39,22 +41,34 @@ export default function Home() {
       return;
     }
 
-    // Check if the entered values match the correct ones
-    if (idNumber.trim() === "1026410108" && serialNumber.trim() === "243854164") {
-      // Trigger PDF download
+    try {
+      const response = await fetch(
+        `/api/document-mappings?idNumber=${encodeURIComponent(
+          idNumber.trim()
+        )}&serialNumber=${encodeURIComponent(serialNumber.trim())}`
+      );
+
+      if (!response.ok) {
+        setFormError("لم يتم العثور على مستند مطابق للبيانات المدخلة.");
+        return;
+      }
+
+      const data = await response.json();
       const link = document.createElement("a");
-      link.href = "/doc.pdf";
-      link.download = "doc.pdf";
+      link.href = data.fileUrl;
+      link.download = data.fileName || "document.pdf";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      // Clear form after successful download
       setIdNumber("");
       setSerialNumber("");
       setErrors({ idNumber: "", serialNumber: "" });
+    } catch (error) {
+      console.error(error);
+      setFormError("تعذر تحميل المستند. يرجى المحاولة مرة أخرى.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
   };
 
   return (
@@ -324,6 +338,9 @@ export default function Home() {
                         if (errors.idNumber) {
                           setErrors({ ...errors, idNumber: "" });
                         }
+                        if (formError) {
+                          setFormError("");
+                        }
                       }}
                       placeholder="برجاء أدخال رقم الهوية الوطنية أو الإقامة أو رقم المنشأة"
                       className={`h-14 w-full rounded-xl border px-4 text-base text-[#1b1f22] placeholder-gray-400 transition-all focus:bg-white focus:outline-none focus:ring-4 ${
@@ -353,6 +370,9 @@ export default function Home() {
                         if (errors.serialNumber) {
                           setErrors({ ...errors, serialNumber: "" });
                         }
+                        if (formError) {
+                          setFormError("");
+                        }
                       }}
                       placeholder="برجاء أدخال الرقم التسلسلي"
                       className={`h-14 w-full rounded-xl border px-4 text-base text-[#1b1f22] placeholder-gray-400 transition-all focus:bg-white focus:outline-none focus:ring-4 ${
@@ -376,6 +396,9 @@ export default function Home() {
                     {isSubmitting ? "جاري المعالجة..." : "انقر هنا لتحميل الملف"}
                   </button>
                 </div>
+                {formError && (
+                  <p className="text-center text-sm text-red-500">{formError}</p>
+                )}
               </form>
             </div>
           </div>
