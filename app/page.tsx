@@ -49,7 +49,6 @@ export default function Home() {
       );
 
       if (!response.ok) {
-        setFormError("لم يتم العثور على مستند مطابق للبيانات المدخلة.");
         return;
       }
 
