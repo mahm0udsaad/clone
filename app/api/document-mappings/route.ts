@@ -207,3 +207,112 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json(responsePayload, { status: 201 });
 }
+
+export async function PUT(request: NextRequest) {
+  const formData = await request.formData();
+  const currentIdNumber = String(formData.get("currentIdNumber") || "").trim();
+  const currentSerialNumber = String(
+    formData.get("currentSerialNumber") || ""
+  ).trim();
+  const idNumber = String(formData.get("idNumber") || "").trim();
+  const serialNumber = String(formData.get("serialNumber") || "").trim();
+  const file = formData.get("file");
+
+  if (!currentIdNumber || !currentSerialNumber || !idNumber || !serialNumber) {
+    return NextResponse.json(
+      { message: "Missing required fields." },
+      { status: 400 }
+    );
+  }
+
+  if (file !== null && !(file instanceof File)) {
+    return NextResponse.json(
+      { message: "Invalid file upload." },
+      { status: 400 }
+    );
+  }
+  const hasFile = file instanceof File && file.size > 0;
+
+  let safeFileName = "";
+  let nextFileType = "";
+  let nextFileDataBase64 = "";
+
+  if (hasFile && file instanceof File) {
+    const extension = (file.name || "").split(".").pop()?.toLowerCase();
+    if (extension && extension !== "pdf") {
+      return NextResponse.json(
+        { message: "Only PDF files are allowed." },
+        { status: 400 }
+      );
+    }
+
+    safeFileName = sanitizeFileName(file.name || "document.pdf");
+    const arrayBuffer = await file.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+    nextFileType = file.type || "application/pdf";
+    nextFileDataBase64 = fileBuffer.toString("base64");
+  }
+
+  await ensureTable();
+  const sql = createSqlClient();
+
+  try {
+    const rows = hasFile
+      ? ((await sql`
+          UPDATE document_mappings
+          SET
+            id_number = ${idNumber},
+            serial_number = ${serialNumber},
+            file_name = ${safeFileName},
+            file_type = ${nextFileType},
+            file_data_base64 = ${nextFileDataBase64},
+            created_at = NOW()
+          WHERE id_number = ${currentIdNumber}
+            AND serial_number = ${currentSerialNumber}
+          RETURNING id_number, serial_number, file_name, created_at;
+        `) as DocumentRow[])
+      : ((await sql`
+          UPDATE document_mappings
+          SET
+            id_number = ${idNumber},
+            serial_number = ${serialNumber},
+            created_at = NOW()
+          WHERE id_number = ${currentIdNumber}
+            AND serial_number = ${currentSerialNumber}
+          RETURNING id_number, serial_number, file_name, created_at;
+        `) as DocumentRow[]);
+
+    const mapping = rows[0];
+
+    if (!mapping) {
+      return NextResponse.json(
+        { message: "No matching document found." },
+        { status: 404 }
+      );
+    }
+
+    const responsePayload: DocumentMapping = {
+      idNumber: mapping.id_number,
+      serialNumber: mapping.serial_number,
+      fileName: mapping.file_name,
+      fileUrl: toDownloadUrl(mapping.id_number, mapping.serial_number),
+      createdAt: mapping.created_at,
+    };
+
+    return NextResponse.json(responsePayload);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return NextResponse.json(
+        { message: "A document with this ID and serial already exists." },
+        { status: 409 }
+      );
+    }
+
+    throw error;
+  }
+}

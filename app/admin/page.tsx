@@ -14,6 +14,10 @@ export default function AdminDashboard() {
   const [idNumber, setIdNumber] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [editTarget, setEditTarget] = useState<{
+    idNumber: string;
+    serialNumber: string;
+  } | null>(null);
   const [errors, setErrors] = useState({
     idNumber: "",
     serialNumber: "",
@@ -23,6 +27,7 @@ export default function AdminDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [mappings, setMappings] = useState<DocumentMapping[]>([]);
+  const isEditMode = Boolean(editTarget);
 
   const loadMappings = async () => {
     try {
@@ -44,6 +49,37 @@ export default function AdminDashboard() {
     loadMappings();
   }, []);
 
+  const resetForm = () => {
+    setIdNumber("");
+    setSerialNumber("");
+    setFile(null);
+    setEditTarget(null);
+    setErrors({ idNumber: "", serialNumber: "", file: "" });
+  };
+
+  const startEdit = (mapping: DocumentMapping) => {
+    setIdNumber(mapping.idNumber);
+    setSerialNumber(mapping.serialNumber);
+    setFile(null);
+    setErrors({ idNumber: "", serialNumber: "", file: "" });
+    setStatusMessage("");
+    setEditTarget({
+      idNumber: mapping.idNumber,
+      serialNumber: mapping.serialNumber,
+    });
+  };
+
+  const formatDate = (isoDate: string) => {
+    const parsed = new Date(isoDate);
+    if (Number.isNaN(parsed.getTime())) {
+      return isoDate;
+    }
+    return new Intl.DateTimeFormat("ar-SA", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsed);
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsSubmitting(true);
@@ -61,7 +97,7 @@ export default function AdminDashboard() {
     if (!serialNumber.trim()) {
       nextErrors.serialNumber = "الرقم التسلسلي مطلوب.";
     }
-    if (!file) {
+    if (!file && !isEditMode) {
       nextErrors.file = "يرجى اختيار ملف PDF.";
     }
 
@@ -79,9 +115,13 @@ export default function AdminDashboard() {
       if (file) {
         formData.append("file", file);
       }
+      if (editTarget) {
+        formData.append("currentIdNumber", editTarget.idNumber);
+        formData.append("currentSerialNumber", editTarget.serialNumber);
+      }
 
       const response = await fetch("/api/document-mappings", {
-        method: "POST",
+        method: isEditMode ? "PUT" : "POST",
         body: formData,
       });
 
@@ -90,15 +130,20 @@ export default function AdminDashboard() {
         throw new Error(errorPayload.message || "Upload failed.");
       }
 
-      setStatusMessage("تم رفع المستند وربطه بالبيانات بنجاح.");
-      setIdNumber("");
-      setSerialNumber("");
-      setFile(null);
-      setErrors({ idNumber: "", serialNumber: "", file: "" });
+      setStatusMessage(
+        isEditMode
+          ? "تم تحديث بيانات المستند بنجاح."
+          : "تم رفع المستند وربطه بالبيانات بنجاح."
+      );
+      resetForm();
       await loadMappings();
     } catch (error) {
       console.error(error);
-      setStatusMessage("تعذر حفظ المستند. يرجى المحاولة مرة أخرى.");
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "تعذر حفظ المستند. يرجى المحاولة مرة أخرى."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -118,6 +163,20 @@ export default function AdminDashboard() {
         </header>
 
         <section className="rounded-2xl bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <h2 className="text-lg font-bold text-[#002552]">
+              {isEditMode ? "تعديل بيانات مستند" : "إضافة مستند جديد"}
+            </h2>
+            {isEditMode && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-[#1b1f22] hover:bg-gray-50"
+              >
+                إلغاء التعديل
+              </button>
+            )}
+          </div>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
@@ -185,6 +244,11 @@ export default function AdminDashboard() {
                 className="block text-sm font-medium text-[#1b1f22]"
               >
                 ملف المستند (PDF)
+                {isEditMode && (
+                  <span className="mr-2 text-xs font-normal text-[#5b6770]">
+                    (اختياري عند التعديل)
+                  </span>
+                )}
               </label>
               <input
                 id="admin-file"
@@ -212,7 +276,11 @@ export default function AdminDashboard() {
                 disabled={isSubmitting}
                 className="h-12 w-full rounded-xl bg-[#0038FF] px-6 text-base font-bold text-white transition-all hover:bg-[#0030dd] hover:shadow-lg hover:shadow-blue-900/20 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
-                {isSubmitting ? "جاري الحفظ..." : "حفظ الربط"}
+                {isSubmitting
+                  ? "جاري الحفظ..."
+                  : isEditMode
+                    ? "حفظ التعديلات"
+                    : "حفظ الربط"}
               </button>
               {statusMessage && (
                 <span className="text-sm text-[#5b6770]">{statusMessage}</span>
@@ -242,12 +310,23 @@ export default function AdminDashboard() {
                 <div className="flex flex-col gap-2 text-sm text-[#1b1f22]">
                   <span>رقم الهوية: {mapping.idNumber}</span>
                   <span>الرقم التسلسلي: {mapping.serialNumber}</span>
+                  <span>اسم الملف: {mapping.fileName}</span>
+                  <span>آخر تحديث: {formatDate(mapping.createdAt)}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
                   <a
                     href={mapping.fileUrl}
                     className="font-semibold text-[#0038FF] hover:underline"
                   >
                     تنزيل المستند
                   </a>
+                  <button
+                    type="button"
+                    onClick={() => startEdit(mapping)}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-[#1b1f22] hover:bg-gray-100"
+                  >
+                    تعديل
+                  </button>
                 </div>
               </div>
             ))}
